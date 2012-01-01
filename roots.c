@@ -357,6 +357,7 @@ int format_volume(const char* volume) {
         return -1;
     }
 
+#if 0
     if (strcmp(v->fs_type, "yaffs2") == 0 || strcmp(v->fs_type, "mtd") == 0) {
         mtd_scan_partitions();
         const MtdPartition* partition = mtd_find_partition_by_name(v->device);
@@ -379,6 +380,7 @@ int format_volume(const char* volume) {
         }
         return 0;
     }
+#endif
 
     if (strcmp(v->fs_type, "ext4") == 0) {
         int result = make_ext4fs(v->device, v->length);
