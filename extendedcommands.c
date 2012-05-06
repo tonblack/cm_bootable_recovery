@@ -31,8 +31,10 @@
 #include "roots.h"
 #include "recovery_ui.h"
 
+#if 0
 #include "../../external/yaffs2/yaffs2/utils/mkyaffs2image.h"
 #include "../../external/yaffs2/yaffs2/utils/unyaffs.h"
+#endif
 
 #include "extendedcommands.h"
 #include "nandroid.h"
