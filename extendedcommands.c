@@ -366,18 +366,44 @@ void show_nandroid_restore_menu(const char* path)
 void show_mount_usb_storage_menu()
 {
     int fd;
-    Volume *vol = volume_for_path("/sdcard");
+    Volume *vol;
+    if ((vol = volume_for_path("/sdcard")) == NULL)
+        return;
     if ((fd = open(BOARD_UMS_LUNFILE, O_WRONLY)) < 0) {
-        LOGE("Unable to open ums lunfile (%s)", strerror(errno));
-        return -1;
+        LOGE("Unable to open %s (%s)", BOARD_UMS_LUNFILE, strerror(errno));
+        return;
     }
 
-    if ((write(fd, vol->device, strlen(vol->device)) < 0) &&
-        (!vol->device2 || (write(fd, vol->device, strlen(vol->device2)) < 0))) {
-        LOGE("Unable to write to ums lunfile (%s)", strerror(errno));
+    // device2 takes precedence over device.
+    // specify whole disk for device2, then whole disk can be mounted.
+    if ((!vol->device2 && write(fd, vol->device, strlen(vol->device)) < 0) ||
+        (vol->device2 && write(fd, vol->device2, strlen(vol->device2)) < 0)) {
+        LOGE("Unable to write to %s (%s)", BOARD_UMS_LUNFILE, strerror(errno));
         close(fd);
-        return -1;
+        return;
     }
+
+#ifdef BOARD_UMS_2ND_LUNFILE
+    int emmc;
+    if ((vol = volume_for_path("/emmc")) == NULL) {
+        close(fd);
+        return;
+    }
+    if ((emmc = open(BOARD_UMS_2ND_LUNFILE, O_WRONLY)) < 0) {
+        LOGE("Unable to open %s (%s)", BOARD_UMS_2ND_LUNFILE, strerror(errno));
+        close(fd);
+        return;
+    }
+
+    if ((!vol->device2 && write(emmc, vol->device, strlen(vol->device)) < 0) ||
+        (vol->device2 && write(emmc, vol->device2, strlen(vol->device2)) < 0)) {
+        LOGE("Unable to write to %s (%s)", BOARD_UMS_2ND_LUNFILE, strerror(errno));
+        close(emmc);
+        close(fd);
+        return;
+    }
+#endif
+
     static char* headers[] = {  "USB Mass Storage device",
                                 "Leaving this menu unmount",
                                 "your SD card from your PC.",
@@ -394,16 +420,16 @@ void show_mount_usb_storage_menu()
             break;
     }
 
-    if ((fd = open(BOARD_UMS_LUNFILE, O_WRONLY)) < 0) {
-        LOGE("Unable to open ums lunfile (%s)", strerror(errno));
-        return -1;
-    }
-
     char ch = 0;
+#ifdef BOARD_UMS_2ND_LUNFILE
+    if (write(emmc, &ch, 1) < 0) {
+        LOGE("Unable to write to %s (%s)", BOARD_UMS_2ND_LUNFILE, strerror(errno));
+        close(emmc);
+    }
+#endif
     if (write(fd, &ch, 1) < 0) {
-        LOGE("Unable to write to ums lunfile (%s)", strerror(errno));
+        LOGE("Unable to write to %s (%s)", BOARD_UMS_LUNFILE, strerror(errno));
         close(fd);
-        return -1;
     }
 }
 
