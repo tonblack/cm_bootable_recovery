@@ -262,7 +262,7 @@ int nandroid_backup(const char* backup_path)
     if (0 != (ret = nandroid_backup_partition(backup_path, "/recovery")))
         return ret;
 
-    Volume *vol = volume_for_path("/wimax");
+    /*Volume *vol = volume_for_path("/wimax");
     if (vol != NULL && 0 == stat(vol->device, &s))
     {
         char serialno[PROPERTY_VALUE_MAX];
@@ -273,7 +273,9 @@ int nandroid_backup(const char* backup_path)
         ret = backup_raw_partition(vol->fs_type, vol->device, tmp);
         if (0 != ret)
             return print_and_error("Error while dumping WiMAX image!\n");
-    }
+    }*/
+    if (0 != (ret = nandroid_backup_partition(backup_path, "/bootloader")))
+	return ret;
 
     if (0 != (ret = nandroid_backup_partition(backup_path, "/system")))
         return ret;
@@ -286,20 +288,21 @@ int nandroid_backup(const char* backup_path)
             return ret;
     }
 
-    if (0 != stat("/sdcard/.android_secure", &s))
+    if (0 != stat("/emmc/.android_secure", &s))
     {
-        ui_print("No /sdcard/.android_secure found. Skipping backup of applications on external storage.\n");
+        ui_print("No /emmc/.android_secure found. Skipping backup of applications on external storage.\n");
     }
     else
     {
-        if (0 != (ret = nandroid_backup_partition_extended(backup_path, "/sdcard/.android_secure", 0)))
+        if (0 != (ret = nandroid_backup_partition_extended(backup_path, "/emmc/.android_secure", 0)))
             return ret;
     }
 
     if (0 != (ret = nandroid_backup_partition_extended(backup_path, "/cache", 0)))
         return ret;
 
-    vol = volume_for_path("/sd-ext");
+    Volume *vol = volume_for_path("/sd-ext");
+    //vol = volume_for_path("/sd-ext");
     if (vol == NULL || 0 != stat(vol->device, &s))
     {
         ui_print("No sd-ext found. Skipping backup of sd-ext.\n");
@@ -544,7 +547,7 @@ int nandroid_restore(const char* backup_path, int restore_boot, int restore_syst
     if (restore_boot && NULL != volume_for_path("/boot") && 0 != (ret = nandroid_restore_partition(backup_path, "/boot")))
         return ret;
     
-    struct stat s;
+    /*struct stat s;
     Volume *vol = volume_for_path("/wimax");
     if (restore_wimax && vol != NULL && 0 == stat(vol->device, &s))
     {
@@ -571,7 +574,9 @@ int nandroid_restore(const char* backup_path, int restore_boot, int restore_syst
             if (0 != (ret = restore_raw_partition(vol->fs_type, vol->device, tmp)))
                 return ret;
         }
-    }
+    }*/
+    if (restore_wimax && 0 != (ret = nandroid_restore_partition(backup_path, "/bootloader")))
+    return ret;
 
     if (restore_system && 0 != (ret = nandroid_restore_partition(backup_path, "/system")))
         return ret;
@@ -584,7 +589,7 @@ int nandroid_restore(const char* backup_path, int restore_boot, int restore_syst
             return ret;
     }
 
-    if (restore_data && 0 != (ret = nandroid_restore_partition_extended(backup_path, "/sdcard/.android_secure", 0)))
+    if (restore_data && 0 != (ret = nandroid_restore_partition_extended(backup_path, "/emmc/.android_secure", 0)))
         return ret;
 
     if (restore_cache && 0 != (ret = nandroid_restore_partition_extended(backup_path, "/cache", 0)))
@@ -626,7 +631,7 @@ int nandroid_main(int argc, char** argv)
     {
         if (argc != 3)
             return nandroid_usage();
-        return nandroid_restore(argv[2], 1, 1, 1, 1, 1, 0);
+        return nandroid_restore(argv[2], 1, 1, 1, 1, 1, 1);
     }
     
     return nandroid_usage();

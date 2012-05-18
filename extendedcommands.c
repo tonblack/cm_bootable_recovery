@@ -354,7 +354,7 @@ void show_nandroid_restore_menu(const char* path)
         return;
 
     if (confirm_selection("Confirm restore?", "Yes - Restore"))
-        nandroid_restore(file, 1, 1, 1, 1, 1, 0);
+        nandroid_restore(file, 1, 1, 1, 1, 1, 1);
 }
 
 #ifndef BOARD_UMS_LUNFILE
@@ -777,14 +777,14 @@ void show_nandroid_advanced_restore_menu(const char* path)
                             "Restore data",
                             "Restore cache",
                             "Restore sd-ext",
-                            "Restore wimax",
+                            "Restore bootloader",
                             NULL
     };
     
-    if (0 != get_partition_device("wimax", tmp)) {
+    /*if (0 != get_partition_device("wimax", tmp)) {
         // disable wimax restore option
         list[5] = NULL;
-    }
+    }*/
 
     static char* confirm_restore  = "Confirm restore?";
 
@@ -812,7 +812,7 @@ void show_nandroid_advanced_restore_menu(const char* path)
                 nandroid_restore(file, 0, 0, 0, 0, 1, 0);
             break;
         case 5:
-            if (confirm_selection(confirm_restore, "Yes - Restore wimax"))
+            if (confirm_selection(confirm_restore, "Yes - Restore bootloader"))
                 nandroid_restore(file, 0, 0, 0, 0, 0, 1);
             break;
     }
