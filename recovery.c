@@ -692,6 +692,7 @@ wipe_data(int confirm) {
     ui_print("Data wipe complete.\n");
 }
 
+int ui_menu_level = 1;
 int ui_root_menu = 0;
 static void
 prompt_and_wait() {
@@ -702,8 +703,11 @@ prompt_and_wait() {
         ui_reset_progress();
         
         ui_root_menu = 1;
+        // ui_menu_level is a legacy variable that i am keeping around to prevent build breakage.
+        ui_menu_level = 0;
         // allow_display_toggle = 1;
         int chosen_item = get_menu_selection(headers, MENU_ITEMS, 0, 0);
+        ui_menu_level = 1;
         ui_root_menu = 0;
         // allow_display_toggle = 0;
 
@@ -803,6 +807,10 @@ main(int argc, char **argv) {
 
     int is_user_initiated_recovery = 0;
     time_t start = time(NULL);
+
+    // Recovery needs to install world-readable files, so clear umask
+    // set by init
+    umask(0);
 
     // If these fail, there's not really anywhere to complain...
     freopen(TEMPORARY_LOG_FILE, "a", stdout); setbuf(stdout, NULL);
