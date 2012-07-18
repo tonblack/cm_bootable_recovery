@@ -43,6 +43,7 @@
 
 #include "extendedcommands.h"
 #include "flashutils/flashutils.h"
+#include "dedupe/dedupe.h"
 
 static const struct option OPTIONS[] = {
   { "send_intent", required_argument, NULL, 's' },
@@ -59,7 +60,7 @@ static const char *LOG_FILE = "/cache/recovery/log";
 static const char *LAST_LOG_FILE = "/cache/recovery/last_log";
 static const char *CACHE_ROOT = "/cache";
 static const char *SDCARD_ROOT = "/sdcard";
-static int allow_display_toggle = 1;
+static int allow_display_toggle = 0;
 static int poweroff = 0;
 static const char *SDCARD_PACKAGE_FILE = "/sdcard/update.zip";
 static const char *TEMPORARY_LOG_FILE = "/tmp/recovery.log";
@@ -435,7 +436,6 @@ get_menu_selection(char** headers, char** items, int menu_only,
     // accidentally trigger menu items.
     ui_clear_key_queue();
     
-    ++ui_menu_level;
     int item_count = ui_start_menu(headers, items, initial_selection);
     int selected = initial_selection;
     int chosen_item = -1;
@@ -459,9 +459,10 @@ get_menu_selection(char** headers, char** items, int menu_only,
             }
         }
 
-        int action = device_handle_key(key, visible);
+        int action = ui_handle_key(key, visible);
 
         int old_selected = selected;
+        selected = ui_get_selected_item();
 
         if (action < 0) {
             switch (action) {
@@ -475,9 +476,8 @@ get_menu_selection(char** headers, char** items, int menu_only,
                     break;
                 case SELECT_ITEM:
                     chosen_item = selected;
-                    if (ui_get_showing_back_button()) {
-                        if (chosen_item == item_count-1) {
-                            --ui_menu_level;
+                    if (ui_is_showing_back_button()) {
+                        if (chosen_item == item_count) {
                             chosen_item = GO_BACK;
                         }
                     }
@@ -485,7 +485,6 @@ get_menu_selection(char** headers, char** items, int menu_only,
                 case NO_ACTION:
                     break;
                 case GO_BACK:
-                    --ui_menu_level;
                     chosen_item = GO_BACK;
                     break;
             }
@@ -493,6 +492,8 @@ get_menu_selection(char** headers, char** items, int menu_only,
             chosen_item = action;
         }
 
+#ifndef BOARD_HAS_NO_SELECT_BUTTON
+#ifndef BOARD_TOUCH_RECOVERY
         if (abs(selected - old_selected) > 1) {
             wrap_count++;
             if (wrap_count == 3) {
@@ -507,6 +508,8 @@ get_menu_selection(char** headers, char** items, int menu_only,
                 }
             }
         }
+#endif
+#endif
     }
 
     ui_end_menu();
@@ -689,6 +692,7 @@ wipe_data(int confirm) {
     ui_print("Data wipe complete.\n");
 }
 
+int ui_root_menu = 0;
 static void
 prompt_and_wait() {
     char** headers = prepend_title((const char**)MENU_HEADERS);
@@ -697,10 +701,11 @@ prompt_and_wait() {
         finish_recovery(NULL);
         ui_reset_progress();
         
-        ui_menu_level = -1;
-        allow_display_toggle = 1;
+        ui_root_menu = 1;
+        // allow_display_toggle = 1;
         int chosen_item = get_menu_selection(headers, MENU_ITEMS, 0, 0);
-        allow_display_toggle = 0;
+        ui_root_menu = 0;
+        // allow_display_toggle = 0;
 
         // device-specific code may take some action here.  It may
         // return one of the core actions handled in the switch
@@ -760,6 +765,8 @@ int
 main(int argc, char **argv) {
     if (strcmp(basename(argv[0]), "recovery") != 0)
     {
+        if (strstr(argv[0], "dedupe") != NULL)
+            return dedupe_main(argc, argv);
         if (strstr(argv[0], "flash_image") != NULL)
             return flash_image_main(argc, argv);
         if (strstr(argv[0], "volume") != NULL)
@@ -910,6 +917,8 @@ main(int argc, char **argv) {
     if (status != INSTALL_SUCCESS || ui_text_visible()) {
         prompt_and_wait();
     }
+
+    verify_root_and_recovery();
 
     // If there is a radio image pending, reboot now to install it.
     maybe_install_firmware_update(send_intent);
