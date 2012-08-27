@@ -18,7 +18,13 @@ LOCAL_SRC_FILES := \
     edifyscripting.c \
     setprop.c \
     default_recovery_ui.c \
-    verifier.c
+    verifier.c \
+    ubi/ubiutils-common.c \
+    ubi/libubi.c
+
+LOCAL_C_INCLUDES += \
+    device/ainol/elf2/mtd-utils/include/ \
+    device/ainol/elf2/mtd-utils/ubi-utils/include
 
 ADDITIONAL_RECOVERY_FILES := $(shell echo $$ADDITIONAL_RECOVERY_FILES)
 LOCAL_SRC_FILES += $(ADDITIONAL_RECOVERY_FILES)

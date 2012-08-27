@@ -38,17 +38,25 @@
 #include "mtdutils/mtdutils.h"
 #include "updater.h"
 #include "applypatch/applypatch.h"
+#include "libubi.h"
+#include "ubiutils-common.h"
 
 #include "flashutils/flashutils.h"
 
+#define DEFAULT_CTRL_DEV "/dev/ubi_ctrl"
 #ifdef USE_EXT4
 #include "make_ext4fs.h"
 #endif
+
+static int UbiAttach(const char* location, char** out_node);
+static int UbiDetach(const char* mount_point);
+static int UbiFormat(int type, const char* location);
 
 // mount(fs_type, partition_type, location, mount_point)
 //
 //    fs_type="yaffs2" partition_type="MTD"     location=partition
 //    fs_type="ext4"   partition_type="EMMC"    location=device
+//    fs_type="ubifs"  partition_type="UBI"     location=partition
 Value* MountFn(const char* name, State* state, int argc, Expr* argv[]) {
     char* result = NULL;
     if (argc != 4) {
@@ -100,6 +108,23 @@ Value* MountFn(const char* name, State* state, int argc, Expr* argv[]) {
             goto done;
         }
         result = mount_point;
+    } else if (strcmp(partition_type, "UBI") == 0) {
+        char ubinode[32] = {0};
+        char *np = &ubinode;
+        int ret = UbiAttach(location, &np);
+        if (ret == 0) {
+            if (mount(ubinode, mount_point, fs_type,
+                      MS_NOATIME | MS_NODEV | MS_NODIRATIME, "") < 0) {
+                fprintf(stderr, "%s: failed to mount %s at %s: %s\n",
+                        name, location, mount_point, strerror(errno));
+                result = strdup("");
+            } else {
+                result = mount_point;
+            }
+        } else {
+            fprintf(stderr, "UbiAttach ret=%d location=%s ubinode=%s\n", ret, location, ubinode);
+            result = strdup("");
+        }
     } else {
         if (mount(location, mount_point, fs_type,
                   MS_NOATIME | MS_NODEV | MS_NODIRATIME, "") < 0) {
@@ -169,8 +194,30 @@ Value* UnmountFn(const char* name, State* state, int argc, Expr* argv[]) {
         fprintf(stderr, "unmount of %s failed; no such volume\n", mount_point);
         result = strdup("");
     } else {
-        unmount_mounted_volume(vol);
-        result = mount_point;
+        bool is_ubifs = false;
+        char* device = NULL;
+
+        const char* fstype = get_filesystem_by_mounted_volume(vol);
+        if (fstype && strcmp(fstype, "ubifs") == 0) {
+            is_ubifs = true;
+            // vol will be freed in unmount_mounted_volume, so make a copy
+            const char * d = get_device_by_mounted_volume(vol);
+            if (d)
+                device = strdup(d);
+        }
+
+        int err = unmount_mounted_volume(vol);
+        if (err) {
+            fprintf(stderr, "unmount of %s failed; errno %d\n", mount_point, err);
+            result = strdup("");
+        } else {
+            result = mount_point;
+            if (is_ubifs && device) {
+                UbiDetach(device);
+            }
+        }
+        if (device)
+            free(device);
     }
 
 done:
@@ -183,6 +230,7 @@ done:
 //
 //    fs_type="yaffs2" partition_type="MTD"     location=partition fs_size=<bytes>
 //    fs_type="ext4"   partition_type="EMMC"    location=device    fs_size=<bytes>
+//    fs_type="ubifs"  partition_type="UBI"     location=partition
 //    if fs_size == 0, then make_ext4fs uses the entire partition.
 //    if fs_size > 0, that is the size to use
 //    if fs_size < 0, then reserve that many bytes at the end of the partition
@@ -213,7 +261,7 @@ Value* FormatFn(const char* name, State* state, int argc, Expr* argv[]) {
         goto done;
     }
 
-    if (strcmp(partition_type, "MTD") == 0) {
+    if (strcmp(partition_type, "MTD") == 0 || strcmp(partition_type, "UBI") == 0) {
         mtd_scan_partitions();
         const MtdPartition* mtd = mtd_find_partition_by_name(location);
         if (mtd == NULL) {
@@ -240,6 +288,13 @@ Value* FormatFn(const char* name, State* state, int argc, Expr* argv[]) {
             goto done;
         }
         result = location;
+	if (strcmp(partition_type, "UBI") == 0) {
+            int ret = UbiFormat(UBI_DYNAMIC_VOLUME, location);
+            if (ret == 0)
+                result = location;
+            else
+                result = strdup("");
+        }
 #ifdef USE_EXT4
     } else if (strcmp(fs_type, "ext4") == 0) {
         int status = make_ext4fs(location, atoll(fs_size));
@@ -281,6 +336,222 @@ done:
     return StringValue(result);
 }
 
+static int UbiAttach(const char* location, char** out_node) {
+    int err;
+    libubi_t libubi;
+    struct ubi_info ubi_info;
+    struct ubi_attach_request req;
+
+    mtd_scan_partitions();
+    int mtdn = mtd_get_index_by_name(location);
+    if (mtdn < 0) {
+        fprintf(stderr, "bad device index for %s\n", location);
+        goto out;
+    }
+
+    libubi = libubi_open();
+    if (!libubi) {
+        fprintf(stderr, "libubi_open fail\n");
+        goto out;
+    }
+
+    /*
+     * Make sure the kernel is fresh enough and this feature is supported.
+     */
+    err = ubi_get_info(libubi, &ubi_info);
+    if (err) {
+        fprintf(stderr, "cannot get UBI information\n");
+        goto out_libubi;
+    }
+
+    if (ubi_info.ctrl_major == -1) {
+        fprintf(stderr, "MTD attach/detach feature is not supported by your kernel\n");
+        goto out_libubi;
+    }
+
+    req.dev_num = UBI_DEV_NUM_AUTO;
+    req.mtd_num = mtdn;
+    req.vid_hdr_offset = 0;
+    req.mtd_dev_node = NULL;
+
+    err = ubi_attach(libubi, DEFAULT_CTRL_DEV, &req);
+    if (err) {
+        fprintf(stderr, "cannot attach mtd%d", mtdn);
+        goto out_libubi;
+    }
+
+    sprintf(*out_node, "/dev/ubi%d_0", req.dev_num);
+
+    libubi_close(libubi);
+    return 0;
+
+out_libubi:
+    libubi_close(libubi);
+out:
+    return -1;
+}
+
+static int UbiDetach(const char* device) {
+    libubi_t libubi;
+    struct ubi_info ubi_info;
+    int err;
+
+    if (!device) {
+        goto out;
+    }
+
+    libubi = libubi_open();
+    if (!libubi) {
+        fprintf(stderr, "libubi_open fail\n");
+        goto out;
+    }
+
+    /*
+     * Make sure the kernel is fresh enough and this feature is supported.
+     */
+    err = ubi_get_info(libubi, &ubi_info);
+    if (err) {
+        fprintf(stderr, "cannot get UBI information\n");
+        goto out_ubi_close;
+    }
+
+    if (ubi_info.ctrl_major == -1) {
+        fprintf(stderr, "MTD attach/detach feature is not supported by your kernel\n");
+        goto out_ubi_close;
+    }
+
+    int devn;
+    char devpath[64];
+    if (device[0] != '/')
+        snprintf(devpath, 64, "/dev/%s", device);
+    else
+        strncpy(devpath, device, 64);
+    devpath[sizeof(devpath) - 1] = '\0';
+
+    err = ubi_probe_node(libubi, devpath);
+    if (err == -1) {
+        fprintf(stderr, "error while probing\n");
+        goto out_ubi_close;
+    } else if (err == 1) {
+        struct ubi_dev_info dev_info;
+        err = ubi_get_dev_info(libubi, devpath, &dev_info);
+        if (err) {
+            fprintf(stderr, "could not get dev info\n");
+            goto out_ubi_close;
+        }
+        devn = dev_info.dev_num;
+    } else {
+        struct ubi_vol_info vol_info;
+        err = ubi_get_vol_info(libubi, devpath, &vol_info);
+        if (err) {
+            fprintf(stderr, "could not get vol info\n");
+            goto out_ubi_close;
+        }
+        devn = vol_info.dev_num;
+    }
+    if (devn < 0) {
+        fprintf(stderr, "could not get dev number\n");
+        goto out_ubi_close;
+    }
+
+    err = ubi_remove_dev(libubi, DEFAULT_CTRL_DEV, devn);
+    if (err) {
+        fprintf(stderr, "could not remove dev\n");
+        goto out_ubi_close;
+    }
+
+    libubi_close(libubi);
+    return 0;
+
+out_ubi_close:
+    libubi_close(libubi);
+out:
+    return -1;
+}
+
+static int UbiFormat(int type, const char* location) {
+    int err;
+    struct ubi_info ubi_info;
+    struct ubi_dev_info dev_info;
+    struct ubi_attach_request req;
+    struct ubi_mkvol_request req2;
+    char value[32] ={0};
+
+    mtd_scan_partitions();
+    int mtdn = mtd_get_index_by_name(location);
+    if (mtdn < 0) {
+        fprintf(stderr, "bad device index for %s\n", location);
+        goto out;
+    }
+
+    libubi_t libubi;
+    libubi = libubi_open();
+    if (!libubi) {
+        fprintf(stderr, "libubi_open fail\n");
+        goto out;
+    }
+
+    /*
+     * Make sure the kernel is fresh enough and this feature is supported.
+     */
+    err = ubi_get_info(libubi, &ubi_info);
+    if (err) {
+        fprintf(stderr, "cannot get UBI information\n");
+        goto out_libubi;
+    }
+
+    if (ubi_info.ctrl_major == -1) {
+        fprintf(stderr, "MTD attach/detach feature is not supported by your kernel\n");
+        goto out_libubi;
+    }
+
+    req.dev_num = UBI_DEV_NUM_AUTO;
+    req.mtd_num = mtdn;
+    req.vid_hdr_offset = 0;
+    req.mtd_dev_node = NULL;
+
+    // make sure partition is detached before attaching
+    ubi_detach_mtd(libubi, DEFAULT_CTRL_DEV, mtdn);
+
+    err = ubi_attach(libubi, DEFAULT_CTRL_DEV, &req);
+    if (err) {
+        fprintf(stderr, "cannot attach mtd%d", mtdn);
+        goto out_libubi;
+    }
+
+    /* Print some information about the new UBI device */
+    err = ubi_get_dev_info1(libubi, req.dev_num, &dev_info);
+    if (err) {
+        fprintf(stderr, "cannot get information about newly created UBI device\n");
+        goto out_ubi_detach;
+    }
+
+    req2.vol_id = UBI_VOL_NUM_AUTO;
+    req2.alignment = 1;
+    req2.bytes = dev_info.avail_bytes;
+    req2.name = location;
+    req2.vol_type = type;
+
+    sprintf(value, "/dev/ubi%d", dev_info.dev_num);
+
+    err = ubi_mkvol(libubi, value, &req2);
+    if (err < 0) {
+        fprintf(stderr, "cannot UBI create volume\n");
+        goto out_ubi_detach;
+    }
+
+    ubi_detach_mtd(libubi, DEFAULT_CTRL_DEV, mtdn);
+    libubi_close(libubi);
+    return 0;
+
+out_ubi_detach:
+    ubi_detach_mtd(libubi, DEFAULT_CTRL_DEV, mtdn);
+
+out_libubi:
+    libubi_close(libubi);
+out:
+    return -1;
+}
 
 Value* DeleteFn(const char* name, State* state, int argc, Expr* argv[]) {
     char** paths = malloc(argc * sizeof(char*));

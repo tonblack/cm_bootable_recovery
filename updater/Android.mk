@@ -5,7 +5,9 @@ LOCAL_PATH := $(call my-dir)
 updater_src_files := \
 	install.c \
 	../mounts.c \
-	updater.c
+	updater.c \
+	../ubi/ubiutils-common.c \
+	../ubi/libubi.c
 
 #
 # Build a statically-linked binary to include in OTA packages
@@ -32,7 +34,10 @@ LOCAL_STATIC_LIBRARIES += libapplypatch libedify libmtdutils libminzip libz
 LOCAL_STATIC_LIBRARIES += libmincrypt libbz
 LOCAL_STATIC_LIBRARIES += libminelf libcrecovery
 LOCAL_STATIC_LIBRARIES += libcutils libstdc++ libc
-LOCAL_C_INCLUDES += $(LOCAL_PATH)/..
+LOCAL_C_INCLUDES +=/ \
+	$(LOCAL_PATH)/../../../device/ainol/elf2/mtd-utils/include/ \
+	$(LOCAL_PATH)/../../../device/ainol/elf2/mtd-utils/ubi-utils/include \
+	$(LOCAL_PATH)/..
 
 # Each library in TARGET_RECOVERY_UPDATER_LIBS should have a function
 # named "Register_<libname>()".  Here we emit a little C function that
