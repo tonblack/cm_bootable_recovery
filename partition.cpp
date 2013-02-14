@@ -49,6 +49,10 @@ extern "C" {
 #endif
 }
 
+#include "roots.h"
+#include "libubi.h"
+#define DEFAULT_CTRL_DEV "/dev/ubi_ctrl"
+
 using namespace std;
 
 TWPartition::TWPartition(void) {
@@ -128,7 +132,7 @@ bool TWPartition::Process_Fstab_Line(string Line, bool Display_Error) {
 			item_index++;
 		} else if (item_index == 1) {
 			// Primary Block Device
-			if (Fstab_File_System == "mtd" || Fstab_File_System == "yaffs2") {
+			if (Fstab_File_System == "mtd" || Fstab_File_System == "yaffs2" ||  Fstab_File_System == "ubifs") {
 				MTD_Name = ptr;
 				Find_MTD_Block_Device(MTD_Name);
 			} else if (Fstab_File_System == "bml") {
@@ -274,6 +278,10 @@ bool TWPartition::Process_Fstab_Line(string Line, bool Display_Error) {
 			Is_Storage = true;
 			Storage_Path = EXPAND(TW_EXTERNAL_STORAGE_PATH);
 			Removable = true;
+#ifdef TW_SWITCHED_MEMORIES
+			Setup_AndSec();
+			Mount_Storage_Retry();
+#endif
 #else
 		if (Mount_Point == "/sdcard") {
 			Is_Storage = true;
@@ -294,7 +302,7 @@ bool TWPartition::Process_Fstab_Line(string Line, bool Display_Error) {
 		if (Mount_Point == EXPAND(TW_INTERNAL_STORAGE_PATH)) {
 			Is_Storage = true;
 			Storage_Path = EXPAND(TW_INTERNAL_STORAGE_PATH);
-#ifndef RECOVERY_SDCARD_ON_DATA
+#if !defined(TW_SWITCHED_MEMORIES) || !defined(RECOVERY_SDCARD_ON_DATA)
 			Setup_AndSec();
 			Mount_Storage_Retry();
 #endif
@@ -392,6 +400,7 @@ bool TWPartition::Is_File_System(string File_System) {
 		File_System == "ntfs" ||
 		File_System == "yaffs2" ||
 		File_System == "exfat" ||
+		File_System == "ubifs" ||
 		File_System == "auto")
 		return true;
 	else
@@ -681,6 +690,82 @@ bool TWPartition::Mount(bool Display_Error) {
 
 	// Check the current file system before mounting
 	Check_FS_Type();
+	
+	if (Current_File_System == "ubifs") {
+	  libubi_t libubi;
+	  struct ubi_info ubi_info;
+	  struct ubi_dev_info dev_info;
+	  struct ubi_attach_request req;
+	  int err;
+	  char value[32] = {0};
+
+	  mtd_scan_partitions();
+	  int mtdn = mtd_get_index_by_name(MTD_Name.c_str());
+	  if (mtdn < 0) {
+	      LOGE("bad mtd index for %s\n", MTD_Name.c_str());
+	      return false;
+	  }
+
+	  libubi = libubi_open();
+	  if (!libubi) {
+	      LOGE("libubi_open fail\n");
+	      return false;
+	  }
+
+	  /*
+	  * Make sure the kernel is fresh enough and this feature is supported.
+	  */
+	  err = ubi_get_info(libubi, &ubi_info);
+	  if (err) {
+	      LOGE("cannot get UBI information\n");
+	      goto out_ubi_close;
+	  }
+
+	  if (ubi_info.ctrl_major == -1) {
+	      LOGE("MTD attach/detach feature is not supported by your kernel\n");
+	      goto out_ubi_close;
+	  }
+
+	  req.dev_num = UBI_DEV_NUM_AUTO;
+	  req.mtd_num = mtdn;
+	  req.vid_hdr_offset = 0;
+	  req.mtd_dev_node = NULL;
+
+	  // make sure partition is detached before attaching
+	  ubi_detach_mtd(libubi, DEFAULT_CTRL_DEV, mtdn);
+
+	  err = ubi_attach(libubi, DEFAULT_CTRL_DEV, &req);
+	  if (err) {
+	      LOGE("cannot attach mtd%d", mtdn);
+	      goto out_ubi_close;
+	  }
+
+	  /* Print some information about the new UBI device */
+	  err = ubi_get_dev_info1(libubi, req.dev_num, &dev_info);
+	  if (err) {
+	      LOGE("cannot get information about newly created UBI device\n");
+	      goto out_ubi_detach;
+	  }
+
+	  sprintf(value, "/dev/ubi%d_0", dev_info.dev_num);
+	
+	  if (mount(value, Mount_Point.c_str(), Current_File_System.c_str(),  MS_NOATIME | MS_NODEV | MS_NODIRATIME, NULL )) {
+	      LOGE("cannot mount ubifs %s to %s\n", value,  Mount_Point.c_str());
+	      goto out_ubi_detach;
+	  }
+	  LOGI("mount ubifs successful  %s to %s\n", value,  Mount_Point.c_str());
+
+	  libubi_close(libubi);
+	  return true;
+
+	  out_ubi_detach:
+	    ubi_detach_mtd(libubi, DEFAULT_CTRL_DEV, mtdn);
+
+	  out_ubi_close:
+	    libubi_close(libubi);
+	    return false;
+	}
+
 	if (Current_File_System == "exfat" && TWFunc::Path_Exists("/sbin/exfat-fuse")) {
 		string cmd = "/sbin/exfat-fuse " + Actual_Block_Device + " " + Mount_Point;
 		LOGI("cmd: %s\n", cmd.c_str());
@@ -698,6 +783,7 @@ bool TWPartition::Mount(bool Display_Error) {
 #endif
 		}
 	}
+
 	if (Fstab_File_System == "yaffs2") {
 		// mount an MTD partition as a YAFFS2 filesystem.
 		mtd_scan_partitions();
@@ -791,6 +877,55 @@ bool TWPartition::UnMount(bool Display_Error) {
 
 		if (!Symlink_Mount_Point.empty())
 			umount(Symlink_Mount_Point.c_str());
+		
+		if (Current_File_System == "ubifs") {
+		  libubi_t libubi;
+		  struct ubi_info ubi_info;
+		  int ret;
+
+		  umount(Mount_Point.c_str());
+
+		  mtd_scan_partitions();
+		  int mtdn = mtd_get_index_by_name(MTD_Name.c_str());
+		  if (mtdn < 0) {
+		      LOGE("bad mtd index for %s\n", MTD_Name.c_str());
+		      return false;
+		  }
+
+		  libubi = libubi_open();
+		  if (!libubi) {
+		      LOGE("libubi_open fail\n");
+		      return false;
+		  }
+
+		  /*
+		  * Make sure the kernel is fresh enough and this feature is supported.
+		  */
+		  ret = ubi_get_info(libubi, &ubi_info);
+		  if (ret) {
+		      LOGE("cannot get UBI information\n");
+		      goto out_ubi_close;
+		  }
+
+		  if (ubi_info.ctrl_major == -1) {
+		      LOGE("MTD detach/detach feature is not supported by your kernel\n");
+		      goto out_ubi_close;
+		  }
+
+		  ret = ubi_detach_mtd(libubi, DEFAULT_CTRL_DEV, mtdn);
+		  if (ret) {
+		      LOGE("cannot detach mtd%d\n", mtdn);
+		      goto out_ubi_close;
+		  }
+		  LOGI("detach ubifs successful mtd%d\n", mtdn);
+
+		  libubi_close(libubi);
+		  return true;
+
+		  out_ubi_close:
+		    libubi_close(libubi);
+		    return false;
+		}
 
 		umount(Mount_Point.c_str());
 		if (Is_Mounted()) {
@@ -849,6 +984,8 @@ bool TWPartition::Wipe(string New_File_System) {
 			wiped = Wipe_EXFAT();
 		else if (New_File_System == "yaffs2")
 			wiped = Wipe_MTD();
+		else if (New_File_System == "ubifs")
+			return Wipe_RMRF();
 		else {
 			LOGE("Unable to wipe '%s' -- unknown file system '%s'\n", Mount_Point.c_str(), New_File_System.c_str());
 			unlink("/.layout_version");
@@ -1034,7 +1171,7 @@ void TWPartition::Check_FS_Type() {
 	char* ptr;
 	int type_found = 0;
 
-	if (Fstab_File_System == "yaffs2" || Fstab_File_System == "mtd" || Fstab_File_System == "bml" || Ignore_Blkid)
+	if (Fstab_File_System == "yaffs2" || Fstab_File_System == "mtd" || Fstab_File_System == "bml" || Fstab_File_System == "ubifs" || Ignore_Blkid)
 		return; // Running blkid on some mtd devices causes a massive crash or needs to be skipped
 
 	Find_Actual_Block_Device();
@@ -1242,6 +1379,9 @@ bool TWPartition::Wipe_RMRF() {
 	ui_print("Removing all files under '%s'\n", Mount_Point.c_str());
 	TWFunc::removeDir(Mount_Point, true);
 	Recreate_AndSec_Folder();
+	if (Current_File_System == "ubifs")
+	  UnMount(true);
+
 	return true;
 }
 

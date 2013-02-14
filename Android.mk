@@ -38,6 +38,13 @@ LOCAL_SRC_FILES += \
     twrp-functions.cpp \
     openrecoveryscript.cpp
 
+LOCAL_SRC_FILES += \
+    ubi/ubiutils-common.c \
+    ubi/libubi.c
+
+LOCAL_C_INCLUDES += \
+     bootable/recovery/ubi/include
+
 ifneq ($(TARGET_RECOVERY_REBOOT_SRC),)
   LOCAL_SRC_FILES += $(TARGET_RECOVERY_REBOOT_SRC)
 endif
@@ -220,6 +227,9 @@ ifeq ($(TW_INCLUDE_JB_CRYPTO), true)
     LOCAL_STATIC_LIBRARIES += libfs_mgrtwrp
     LOCAL_SRC_FILES += crypto/jb/cryptfs.c
     LOCAL_C_INCLUDES += system/extras/ext4_utils external/openssl/include
+endif
+ifeq ($(TW_SWITCHED_MEMORIES), true)
+    LOCAL_CFLAGS += -DTW_SWITCHED_MEMORIES
 endif
 
 ifeq ($(TARGET_BOARD_PLATFORM),rk30xx)
