@@ -2440,8 +2440,8 @@
 				<listitem name="(UTC  0) London, Dublin, Lisbon">GMT0;BST</listitem>
 				<listitem name="(UTC +1) Berlin, Brussels, Paris">NFT-1;DFT</listitem>
 				<listitem name="(UTC +2) Athens, Istanbul, South Africa">WET-2;WET</listitem>
-				<listitem name="(UTC +3) Moscow, Baghdad">SAUST-3;SAUDT</listitem>
-				<listitem name="(UTC +4) Abu Dhabi, Tbilisi, Muscat">WST-4;WDT</listitem>
+				<listitem name="(UTC +3) Kaliningrad, Baghdad">SAUST-3;SAUDT</listitem>
+				<listitem name="(UTC +4) Moscow, Tbilisi, Muscat">WST-4;WDT</listitem>
 				<listitem name="(UTC +5) Yekaterinburg, Islamabad">PAKST-5;PAKDT</listitem>
 				<listitem name="(UTC +6) Almaty, Dhaka, Colombo">TASHST-6;TASHDT</listitem>
 				<listitem name="(UTC +7) Bangkok, Hanoi, Jakarta">THAIST-7;THAIDT</listitem>
