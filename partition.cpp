@@ -189,10 +189,10 @@ bool TWPartition::Process_Fstab_Line(string Line, bool Display_Error) {
 		Find_Actual_Block_Device();
 		Setup_File_System(Display_Error);
 		if (Mount_Point == "/system") {
-			Display_Name = "System";
+			Display_Name = "SYSTEM";
 			Wipe_Available_in_GUI = true;
 		} else if (Mount_Point == "/data") {
-			Display_Name = "Data";
+			Display_Name = "DATA";
 			Wipe_Available_in_GUI = true;
 			Wipe_During_Factory_Reset = true;
 #ifdef RECOVERY_SDCARD_ON_DATA
@@ -250,7 +250,7 @@ bool TWPartition::Process_Fstab_Line(string Line, bool Display_Error) {
 	#endif
 #endif
 		} else if (Mount_Point == "/cache") {
-			Display_Name = "Cache";
+			Display_Name = "CACHE";
 			Wipe_Available_in_GUI = true;
 			Wipe_During_Factory_Reset = true;
 			if (Mount(false) && !TWFunc::Path_Exists("/cache/recovery/.")) {
@@ -266,11 +266,11 @@ bool TWPartition::Process_Fstab_Line(string Line, bool Display_Error) {
 			DataManager::SetValue(TW_HAS_DATADATA, 1);
 		} else if (Mount_Point == "/sd-ext") {
 			Wipe_During_Factory_Reset = true;
-			Display_Name = "SD-Ext";
+			Display_Name = "SD-EXT";
 			Wipe_Available_in_GUI = true;
 			Removable = true;
 		} else if (Mount_Point == "/boot") {
-			Display_Name = "Boot";
+			Display_Name = "BOOT";
 			DataManager::SetValue("tw_boot_is_mountable", 1);
 		}
 #ifdef TW_EXTERNAL_STORAGE_PATH

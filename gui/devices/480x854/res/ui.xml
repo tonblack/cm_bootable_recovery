@@ -1125,7 +1125,7 @@
 				<condition var1="tw_has_external" var2="1" />
 				<placement x="%col1_x%" y="%row3_y%" />
 				<font resource="font" color="%button_text_color%" />
-				<text>External Storage</text>
+				<text>SD Card</text>
 				<image resource="main_button" />
 				<actions>
 					<action function="set">tw_back=wipe</action>
@@ -1212,15 +1212,15 @@
 				<condition var1="tw_has_sdext_partition" var2="1" />
 				<placement x="%col2_x%" y="%row4_y%" />
 				<font resource="font" color="%button_text_color%" />
-				<text>SD Ext</text>
+				<text>SD EXT</text>
 				<image resource="main_button" />
 				<actions>
 					<action function="set">tw_back=wipe</action>
 					<action function="set">tw_action=wipe</action>
 					<action function="set">tw_action_param=/sd-ext</action>
-					<action function="set">tw_text1=Wipe SD-Ext?</action>
-					<action function="set">tw_action_text1=Wiping SD-Ext...</action>
-					<action function="set">tw_complete_text1=SD-Ext Wipe Complete</action>
+					<action function="set">tw_text1=Wipe SD-EXT?</action>
+					<action function="set">tw_action_text1=Wiping SD-EXT...</action>
+					<action function="set">tw_complete_text1=SD-EXT Wipe Complete</action>
 					<action function="set">tw_slider_text=Swipe to Wipe</action>
 					<action function="page">confirm_action</action>
 				</actions>
